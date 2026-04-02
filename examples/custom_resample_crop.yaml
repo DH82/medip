@@ -1,0 +1,30 @@
+# medip config: custom resample + crop example
+#
+# Example: resample to 0.1mm spacing + crop with 10mm margin.
+# Good for standardized input to models expecting fixed resolution.
+#
+# Usage:
+#   medip run --input dicom_dir/ --output output_dir/ --config custom_resample_crop.yaml
+#
+# Requires: pip install medip[itk]
+
+profile: mammography/learning_raw
+
+geometry:
+  spacing_policy: target
+  target_spacing: [0.1, 0.1]    # 0.1mm isotropic
+  image_interpolator: linear     # Faster than bspline, good enough for most cases
+
+roi:
+  mask_policy: otsu
+  crop_policy: fixed_margin
+  crop_margin_mm: 10.0           # 10mm margin around ROI
+
+export:
+  format: png16
+  dtype: uint16
+  save_mask: true                # Also save the mask
+  save_metadata_json: true
+
+runtime:
+  num_workers: 8

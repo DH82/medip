@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "medip"
+version = "0.1.0"
+description = "DICOM-standard medical image preprocessing toolkit — profile-driven, modality-extensible"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Donghyun Lee", email = "na22jho@gmail.com"},
+]
+maintainers = [
+    {name = "Donghyun Lee", email = "na22jho@gmail.com"},
+]
+keywords = ["dicom", "medical-imaging", "preprocessing", "mammography", "radiology"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+    "pydicom>=2.4",
+    "numpy>=1.22",
+    "opencv-python-headless>=4.5",
+]
+
+[project.optional-dependencies]
+cli = [
+    "tqdm>=4.60",
+    "pyyaml>=6.0",
+]
+jpeg = [
+    "pylibjpeg>=2.0",
+    "pylibjpeg-libjpeg>=2.0",
+    "pylibjpeg-openjpeg>=2.0",
+]
+itk = [
+    "SimpleITK>=2.2",
+]
+nifti = [
+    "nibabel>=5.0",
+]
+all = [
+    "medip[cli,jpeg,itk,nifti]",
+]
+dev = [
+    "medip[all]",
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[project.scripts]
+medip = "medip.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/DH82/medip"
+Repository = "https://github.com/DH82/medip"
+Issues = "https://github.com/DH82/medip/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

@@ -1,0 +1,36 @@
+# medip config: mammography/clinical_display
+#
+# Visualization/review: resampled, masked, cropped, 8-bit PNG.
+# NOT recommended as training default — significant information loss.
+#
+# Usage:
+#   medip run --input dicom_dir/ --output output_dir/ --config clinical_display.yaml
+
+profile: mammography/clinical_display
+
+dicom:
+  apply_modality_lut: true
+  voi_policy: auto
+  photometric_policy: auto
+  padding_policy: clip           # Zero out padding pixels
+  presentation_intent_policy: ignore  # Apply VOI regardless of intent type
+
+geometry:
+  spacing_policy: target
+  target_spacing: [0.07, 0.07]   # [row, col] spacing in mm
+  image_interpolator: bspline
+  mask_interpolator: nearest
+
+roi:
+  mask_policy: otsu              # Otsu-based foreground segmentation
+  crop_policy: bbox              # Crop to bounding box of mask
+  # crop_margin_mm: 5.0         # Optional: add margin around crop
+
+export:
+  format: png8                   # 8-bit PNG for quick viewing
+  dtype: uint8
+  save_mask: false
+  save_metadata_json: false
+
+runtime:
+  num_workers: 8

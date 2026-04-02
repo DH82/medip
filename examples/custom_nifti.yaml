@@ -1,0 +1,19 @@
+# medip config: custom NIfTI output example
+#
+# Example of overriding a preset with custom export settings.
+# Starts from learning_raw and changes output to NIfTI format.
+#
+# Usage:
+#   medip run --input dicom_dir/ --output output_dir/ --config custom_nifti.yaml
+#
+# Requires: pip install medip[nifti]
+
+profile: mammography/learning_raw
+
+export:
+  format: nifti                  # NIfTI-1 (.nii.gz) output
+  dtype: float32
+  save_metadata_json: true
+
+runtime:
+  num_workers: 4

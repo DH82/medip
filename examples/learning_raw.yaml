@@ -1,0 +1,31 @@
+# medip config: mammography/learning_raw
+#
+# Training default: preserve raw pixel values after modality transform.
+# Best for: AI/ML model training on FOR PROCESSING mammography images.
+#
+# Usage:
+#   medip run --input dicom_dir/ --output output_dir/ --config learning_raw.yaml
+
+profile: mammography/learning_raw
+
+dicom:
+  apply_modality_lut: true       # Apply Rescale Slope/Intercept
+  voi_policy: none               # No windowing — keep full dynamic range
+  photometric_policy: auto       # Invert MONOCHROME1 automatically
+  padding_policy: mask           # Mask Pixel Padding Value regions
+  presentation_intent_policy: auto  # Auto-detect FOR PROCESSING/PRESENTATION
+
+geometry:
+  spacing_policy: keep           # Keep original pixel spacing
+
+roi:
+  mask_policy: none              # No mask extraction
+  crop_policy: none              # No cropping — deliver full FOV
+
+export:
+  format: npy                    # NumPy float32 array (lossless)
+  dtype: float32
+  save_metadata_json: true       # Save metadata sidecar JSON
+
+runtime:
+  num_workers: 8

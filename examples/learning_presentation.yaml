@@ -1,0 +1,32 @@
+# medip config: mammography/learning_presentation
+#
+# Training on presentation images: applies VOI windowing for display-ready data.
+# Best for: when training data is FOR PRESENTATION and you want consistent contrast.
+#
+# Usage:
+#   medip run --input dicom_dir/ --output output_dir/ --config learning_presentation.yaml
+
+profile: mammography/learning_presentation
+
+dicom:
+  apply_modality_lut: true
+  voi_policy: auto               # Apply VOI LUT Sequence or Window Center/Width
+  voi_index: 0                   # Use first window (for multi-window DICOM)
+  photometric_policy: auto
+  padding_policy: mask
+  presentation_intent_policy: for_presentation
+
+geometry:
+  spacing_policy: keep
+
+roi:
+  mask_policy: none
+  crop_policy: none
+
+export:
+  format: png16                  # 16-bit PNG (lossless, good balance)
+  dtype: uint16
+  save_metadata_json: true
+
+runtime:
+  num_workers: 8
