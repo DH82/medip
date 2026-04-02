@@ -17,7 +17,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from tqdm import tqdm
+
+try:
+    from tqdm import tqdm as _tqdm
+except ImportError:
+    _tqdm = None
 
 from ..config import PipelineConfig, PresentationIntentPolicy, VOIPolicy
 from ..exceptions import DicomReadError
@@ -33,6 +37,13 @@ from ..transforms.padding import apply_padding_mask
 from ..transforms.photometric import apply_photometric
 
 logger = logging.getLogger(__name__)
+
+
+def _progress(iterable, **kwargs):
+    """Wrap an iterable with tqdm when available."""
+    if _tqdm is None:
+        return iterable
+    return _tqdm(iterable, **kwargs)
 
 
 class BasePipeline:
@@ -179,7 +190,7 @@ class BasePipeline:
         ]
 
         if num_workers <= 1:
-            for dcm_path, out_path in tqdm(args_list, desc="Processing"):
+            for dcm_path, out_path in _progress(args_list, desc="Processing"):
                 try:
                     self.process_single(dcm_path, out_path)
                     success_count += 1
@@ -193,7 +204,7 @@ class BasePipeline:
                     pool.submit(_worker, self.__class__, self.config, dcm_p, out_p): dcm_p
                     for dcm_p, out_p in args_list
                 }
-                for future in tqdm(
+                for future in _progress(
                     concurrent.futures.as_completed(future_map),
                     total=len(future_map),
                     desc="Processing",

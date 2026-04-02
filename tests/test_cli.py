@@ -1,5 +1,6 @@
 """Tests for CLI interface."""
 
+from medip.pipelines import base as base_module
 import pytest
 from medip.cli import main
 
@@ -45,3 +46,8 @@ class TestCLI:
         captured = capsys.readouterr()
         assert "DRY RUN" in captured.out
         assert "mammography" in captured.out
+
+    def test_progress_falls_back_without_tqdm(self, monkeypatch):
+        monkeypatch.setattr(base_module, "_tqdm", None)
+        values = [1, 2, 3]
+        assert list(base_module._progress(values, desc="Processing")) == values
