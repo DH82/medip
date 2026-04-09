@@ -97,11 +97,22 @@ def _cast_dtype(pixels: np.ndarray, config: ExportConfig) -> np.ndarray:
         return pixels.astype(np.float32)
 
     if config.dtype == ExportDtype.UINT16:
-        p_min, p_max = pixels.min(), pixels.max()
-        if p_max > p_min:
-            normalized = (pixels - p_min) / (p_max - p_min)
-            return (normalized * 65535).astype(np.uint16)
-        return np.zeros_like(pixels, dtype=np.uint16)
+        # Preserve raw pixel values when they already fit in [0, 65535].
+        # This avoids the per-image min-max rescaling that would destroy
+        # cross-image calibration (important for training on raw DICOM).
+        # Values outside the range are clipped with a warning.
+        p_min = float(pixels.min()) if pixels.size else 0.0
+        p_max = float(pixels.max()) if pixels.size else 0.0
+        if p_min < 0 or p_max > 65535:
+            logger.warning(
+                "UINT16 cast: pixel range [%.3f, %.3f] exceeds [0, 65535]; clipping.",
+                p_min,
+                p_max,
+            )
+        clipped = np.clip(pixels, 0, 65535)
+        if np.issubdtype(pixels.dtype, np.floating):
+            clipped = np.rint(clipped)
+        return clipped.astype(np.uint16)
 
     if config.dtype == ExportDtype.UINT8:
         p_min, p_max = pixels.min(), pixels.max()

@@ -15,7 +15,7 @@ Usage:
     pipeline = MammographyPipeline(config=config)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .config import PipelineConfig
 from .pipelines.base import BasePipeline

@@ -15,13 +15,26 @@ class TestCastDtype:
         result = _cast_dtype(pixels, config)
         assert result.dtype == np.float32
 
-    def test_uint16(self):
+    def test_uint16_preserves_raw_values(self):
+        # New behavior: values in [0, 65535] cast directly without rescaling.
         pixels = np.array([[0, 100, 200]], dtype=np.float32)
         config = ExportConfig(dtype=ExportDtype.UINT16)
         result = _cast_dtype(pixels, config)
         assert result.dtype == np.uint16
-        assert result.min() == 0
-        assert result.max() == 65535
+        np.testing.assert_array_equal(result, [[0, 100, 200]])
+
+    def test_uint16_clips_out_of_range(self):
+        pixels = np.array([[-10, 100, 70000]], dtype=np.float32)
+        config = ExportConfig(dtype=ExportDtype.UINT16)
+        result = _cast_dtype(pixels, config)
+        assert result.dtype == np.uint16
+        np.testing.assert_array_equal(result, [[0, 100, 65535]])
+
+    def test_uint16_rounds_float(self):
+        pixels = np.array([[0.4, 0.6, 100.7]], dtype=np.float32)
+        config = ExportConfig(dtype=ExportDtype.UINT16)
+        result = _cast_dtype(pixels, config)
+        np.testing.assert_array_equal(result, [[0, 1, 101]])
 
     def test_uint8(self):
         pixels = np.array([[0, 100, 200]], dtype=np.float32)
@@ -36,7 +49,7 @@ class TestCastDtype:
         config = ExportConfig(dtype=ExportDtype.UINT16)
         result = _cast_dtype(pixels, config)
         assert result.dtype == np.uint16
-        assert np.all(result == 0)
+        assert np.all(result == 42)
 
 
 class TestExportImage:

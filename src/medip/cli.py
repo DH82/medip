@@ -35,6 +35,7 @@ Modalities:
 
 Profiles (mammography):
   learning_raw            Training default (float32, no VOI, full resolution)
+  learning_raw_uint16     Training with uint16 npy (lossless cast, half disk size)
   learning_presentation   Presentation image training (uint16 PNG, auto VOI)
   clinical_display        Visualization (uint8 PNG, resampled, cropped)
 
@@ -112,7 +113,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "-V", "--version", action="version",
-        version="%(prog)s 0.1.0",
+        version="%(prog)s 0.1.1",
     )
     parser.add_argument(
         "--log-level", default="INFO",

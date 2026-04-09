@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-04-09
+
+### Added
+- New preset `mammography/learning_raw_uint16`: same pipeline as `learning_raw` but exports uint16 npy for ~50% smaller training files
+- CLI help lists the new `learning_raw_uint16` profile
+
+### Changed
+- `ExportDtype.UINT16` cast now preserves raw pixel values via clip-to-[0, 65535] instead of per-image min-max rescaling. This keeps cross-image calibration intact (critical for training on raw DICOM). Out-of-range values are clipped with a warning.
+
 ## [0.1.0] - 2025-04-02
 
 ### Added

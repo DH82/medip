@@ -47,6 +47,14 @@ class TestPresets:
         assert cfg.dicom.voi_policy == VOIPolicy.AUTO
         assert cfg.export.format == ExportFormat.PNG8
 
+    def test_learning_raw_uint16_defaults(self):
+        cfg = get_preset("learning_raw_uint16")
+        assert cfg.dicom.voi_policy == VOIPolicy.NONE
+        assert cfg.geometry.spacing_policy == SpacingPolicy.KEEP
+        assert cfg.roi.mask_policy == MaskPolicy.NONE
+        assert cfg.export.format == ExportFormat.NPY
+        assert cfg.export.dtype == ExportDtype.UINT16
+
     def test_learning_presentation_defaults(self):
         cfg = get_preset("learning_presentation")
         assert cfg.dicom.voi_policy == VOIPolicy.AUTO
