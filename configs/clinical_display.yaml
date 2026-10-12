@@ -4,7 +4,7 @@
 # NOT recommended as training default — significant information loss.
 #
 # Usage:
-#   medip run --input dicom_dir/ --output output_dir/ --config clinical_display.yaml
+#   medip run --input dicom_dir/ --output output_dir/ --config configs/clinical_display.yaml
 
 profile: mammography/clinical_display
 

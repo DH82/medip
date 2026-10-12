@@ -118,6 +118,34 @@ class TestExportImage:
         out = export_image(pixels, tmp_path / "test.jpg", config)
         assert out.exists()
 
+    def test_dotted_uid_name_is_not_truncated(self, tmp_path):
+        # DICOM UID filenames are full of dots; each must get its own file
+        pixels = np.random.rand(8, 8).astype(np.float32) * 4095
+        config = ExportConfig(
+            format=ExportFormat.PNG16,
+            dtype=ExportDtype.UINT16,
+            save_metadata_json=True,
+        )
+        stem_a = "1.2.826.0.1.3680043.8.498.111"
+        stem_b = "1.2.826.0.1.3680043.8.498.222"
+        out_a = export_image(pixels, tmp_path / stem_a, config, metadata_dict={"a": 1})
+        out_b = export_image(pixels, tmp_path / stem_b, config, metadata_dict={"b": 2})
+
+        assert out_a.name == stem_a + ".png"
+        assert out_b.name == stem_b + ".png"
+        assert out_a != out_b
+        assert (tmp_path / (stem_a + ".json")).exists()
+
+    def test_known_extension_is_replaced(self, tmp_path):
+        pixels = np.random.rand(8, 8).astype(np.float32)
+        config = ExportConfig(
+            format=ExportFormat.NPY,
+            dtype=ExportDtype.FLOAT32,
+            save_metadata_json=False,
+        )
+        out = export_image(pixels, tmp_path / "scan.dcm", config)
+        assert out.name == "scan.npy"
+
     def test_metadata_sidecar(self, tmp_path):
         pixels = np.random.rand(64, 64).astype(np.float32)
         config = ExportConfig(

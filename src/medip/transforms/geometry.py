@@ -75,7 +75,7 @@ def resample_image(
     try:
         import SimpleITK as sitk
     except ImportError:
-        logger.error("SimpleITK not installed. Install with: pip install medip[itk]")
+        logger.error("SimpleITK not installed. Install with: pip install \"medip[itk]\"")
         return pixels, current_spacing
 
     interp_key = config.mask_interpolator if is_mask else config.image_interpolator

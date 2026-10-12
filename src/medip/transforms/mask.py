@@ -16,7 +16,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from ..config import MaskPolicy, ROIConfig
+from ..config import MaskPolicy, MaskSource, ROIConfig
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +51,19 @@ def extract_mask(
     else:
         return None
 
-    # Combine with padding mask if available
+    # Combine with padding mask if available. This happens BEFORE component
+    # selection: Pixel Padding regions are not image data, so they must not
+    # bridge separate objects into one component or inflate its area. Selecting
+    # first lets background noise connect burned-in glyphs into a blob that
+    # clears min_contour_area, only for the padding intersection to strip the
+    # noise away again and leave the glyphs behind.
     if padding_mask is not None:
         mask = mask & padding_mask.astype(np.uint8)
+
+    mask = _select_components(mask, config)
+
+    if config.mask_to_bbox:
+        mask = _expand_to_bbox(mask)
 
     _log_mask_quality(mask, pixels.shape)
     return mask
@@ -87,7 +97,7 @@ def _otsu_mask(pixels: np.ndarray, config: ROIConfig) -> np.ndarray:
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((k_open, k_open), np.uint8))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((k_close, k_close), np.uint8))
 
-    return _keep_largest_contour(mask, config.min_contour_area)
+    return mask
 
 
 def _largest_component_mask(pixels: np.ndarray, config: ROIConfig) -> np.ndarray:
@@ -98,8 +108,56 @@ def _largest_component_mask(pixels: np.ndarray, config: ROIConfig) -> np.ndarray
 
     arr_norm = ((pixels - _min) / (_max - _min) * 255).astype(np.uint8)
     _, binary = cv2.threshold(arr_norm, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    mask = (binary > 0).astype(np.uint8)
-    return _keep_largest_contour(mask, config.min_contour_area)
+    return (binary > 0).astype(np.uint8)
+
+
+def _expand_to_bbox(mask: np.ndarray) -> np.ndarray:
+    """Replace the mask with the smallest rectangle that contains it.
+
+    A rectangle can only ever add pixels, so nothing the segmentation found is
+    lost to a ragged boundary — at the cost of taking in whatever else falls
+    inside those bounds. With a single-component mask that is the strip of
+    background hugging the breast; with scattered components it can be most of
+    the image, so check what survives component selection before enabling this.
+    """
+    ys, xs = np.nonzero(mask)
+    if ys.size == 0:
+        return mask
+
+    boxed = np.zeros_like(mask)
+    boxed[ys.min():ys.max() + 1, xs.min():xs.max() + 1] = 1
+    return boxed
+
+
+def _select_components(mask: np.ndarray, config: ROIConfig) -> np.ndarray:
+    """Reduce the thresholded mask to the contours worth keeping.
+
+    ``keep_all_components`` decides between two very different behaviors:
+
+    - False (default): only the single largest contour survives. Simple, but on
+      an MLO mammogram the pectoral muscle and the breast are often separate
+      components, and whichever is smaller — frequently the breast itself — is
+      discarded along with the background.
+    - True: every contour of at least ``min_contour_area`` survives. Set
+      ``min_contour_area`` above the size of any burned-in annotation you want
+      dropped, but below the smallest tissue island you want kept.
+    """
+    if not config.keep_all_components:
+        return _keep_largest_contour(mask, config.min_contour_area)
+
+    # Select on the component's pixel count, not cv2.contourArea. contourArea is
+    # the area enclosed by the outline, so a thin L-shaped registration bracket
+    # scores large while covering few pixels — and filling that contour would
+    # restore the burned-in label sitting inside it.
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+    final_mask = np.zeros_like(mask)
+    kept = 0
+    for index in range(1, count):
+        if stats[index, cv2.CC_STAT_AREA] >= config.min_contour_area:
+            final_mask[labels == index] = 1
+            kept += 1
+    logger.debug("Kept %d/%d components of >= %d px", kept, count - 1, config.min_contour_area)
+    return final_mask
 
 
 def _keep_largest_contour(mask: np.ndarray, min_area: int) -> np.ndarray:

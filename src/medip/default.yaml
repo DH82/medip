@@ -1,0 +1,207 @@
+# ============================================================================
+# medip default configuration  (= preset mammography/png16_minmax_masked)
+#
+# Writes 16-bit PNGs with a min-max window and the background masked out.
+#   medip.run(input_dir, output_dir)          -> runs with this file
+#   medip run -i input_dir -o output_dir      -> same, from the shell
+#
+# Every available option is listed.
+#   - an uncommented line    = the value in use (the default)
+#   - a "# key: value" line  = an alternative you can switch to
+# To change an option, comment out the active line and uncomment the one you
+# want. Two active lines for the same key, or a misspelled key, is an error.
+#
+# To customize a copy instead of this file:
+#   medip init-config my_config.yaml        (or medip.write_default_config("my_config.yaml"))
+#   medip.run(input_dir, output_dir, "my_config.yaml")
+# ============================================================================
+
+
+# ── 1. DICOM interpretation ────────────────────────────────────────────────
+dicom:
+  # Apply the Modality LUT (Rescale Slope/Intercept or Modality LUT Sequence)
+  apply_modality_lut: true
+  # apply_modality_lut: false               # use the stored pixel values as-is
+
+  # VOI (brightness window)
+  voi_policy: min_max_window                # map the image's own min/max onto 0..voi_output_max (dcmj2pnm --min-max-window)
+  # voi_policy: none                        # no window; keep raw values (best for training a new model)
+  # voi_policy: auto                        # VOI LUT Sequence if present, else Window Center/Width (vendor reading window)
+  # voi_policy: window                      # Window Center/Width only
+  # voi_policy: lut                         # VOI LUT Sequence only
+  # voi_policy: legacy_linear               # manual linear window (legacy MakePNG behavior)
+  # voi_policy: legacy_sigmoid              # manual sigmoid window (legacy MakePNG behavior)
+
+  # Which window / LUT to use when the DICOM carries several (auto, window, lut only)
+  voi_index: 0
+  # voi_index: 1
+
+  # Photometric Interpretation (applied after the VOI step, within its fixed output range)
+  photometric_policy: auto                  # invert MONOCHROME1 to MONOCHROME2 (brighter = denser)
+  # photometric_policy: keep                # leave as stored
+
+  # Pixel Padding Value regions (outside the collimator, etc.)
+  padding_policy: mask                      # keep out of the min/max estimate and the mask (pixels unchanged)
+  # padding_policy: clip                    # set those pixels to 0
+  # padding_policy: none                    # ignore (needed for a bit-identical match with DCMTK)
+
+  # How Presentation Intent Type affects the VOI step
+  presentation_intent_policy: ignore        # always apply voi_policy
+  # presentation_intent_policy: auto        # skip the VOI for FOR PROCESSING images when voi_policy is auto
+  # presentation_intent_policy: for_processing    # skip the VOI for every image
+  # presentation_intent_policy: for_presentation  # always apply voi_policy (same as ignore)
+
+
+# ── 2. Resolution ──────────────────────────────────────────────────────────
+geometry:
+  spacing_policy: keep                      # keep the original resolution
+  # spacing_policy: auto                    # resample to target_spacing when PixelSpacing exists  [pip install "medip[itk]"]
+  # spacing_policy: target                  # always resample to target_spacing                   [pip install "medip[itk]"]
+
+  # Target spacing [row, col] in mm. Used only by spacing_policy auto / target
+  target_spacing: [0.07, 0.07]
+  # target_spacing: [0.1, 0.1]
+
+  # Resampling interpolation (image / mask)
+  image_interpolator: bspline
+  # image_interpolator: linear
+  # image_interpolator: nearest
+  mask_interpolator: nearest
+  # mask_interpolator: linear
+
+
+# ── 3. Background mask / crop ──────────────────────────────────────────────
+roi:
+  # Breast mask. Everything outside it is set to 0, which removes burned-in
+  # view/laterality text (LCC, RMLO, ...) that is often brighter than tissue
+  # even when the header says BurnedInAnnotation = NO.
+  mask_policy: otsu                         # Otsu + blur + morphology
+  # mask_policy: none                       # no mask (plain DCMTK-style output)
+  # mask_policy: largest_component          # plain Otsu threshold (no blur, morphology or sensitivity)
+
+  # Threshold = Otsu value x sensitivity. Lower = larger mask
+  otsu_sensitivity: 0.2
+  # otsu_sensitivity: 0.4                   # less background, but trims skin line / fat on many images
+
+  # Morphology kernel sizes (px): open removes specks, close fills small holes
+  morph_open_kernel: 7
+  morph_close_kernel: 15
+
+  # Components smaller than this (px) are discarded
+  min_contour_area: 2000
+
+  # Which components to keep
+  keep_all_components: false                # only the largest one (the breast body)
+  # keep_all_components: true               # every component of at least min_contour_area
+
+  # Image the mask is computed from
+  mask_source: post_voi                     # after the VOI window
+  # mask_source: pre_voi                    # before the VOI window (recommended with a narrow vendor window)
+
+  # Expand the mask to its bounding rectangle, so a ragged contour never cuts tissue
+  mask_to_bbox: true
+  # mask_to_bbox: false                     # use the contour as-is
+
+  # Crop to the mask
+  crop_policy: none                         # no crop: the breast keeps its scale under a fixed-size resize
+  # crop_policy: bbox                       # crop to the mask's bounding box, plus crop_margin_*
+
+  # Crop margin. Used only with crop_policy: bbox; the px value wins when > 0
+  crop_margin_mm: 0.0
+  # crop_margin_mm: 5.0
+  crop_margin_px: 0
+  # crop_margin_px: 50
+
+
+# ── 4. Output ──────────────────────────────────────────────────────────────
+export:
+  format: png16                             # 16-bit PNG (.png)
+  # format: png8                            # 8-bit PNG (for viewing; lossy)
+  # format: npy                             # NumPy array (.npy)
+  # format: npz                             # compressed NumPy (.npz, includes spacing)
+  # format: tiff16                          # 16-bit TIFF (.tiff)
+  # format: jpeg                            # 8-bit JPEG (.jpg; lossy)
+  # format: dicom                           # Secondary Capture DICOM (.dcm)
+
+  # Cast just before saving
+  dtype: uint16                             # clip to 0..65535 (values kept)
+  # dtype: float32                          # as computed (use with npy / npz)
+  # dtype: uint8                            # stretch each image's min/max onto 0..255
+
+  # Output ceiling for every VOI: min_max_window, legacy, window and VOI LUT Sequence
+  voi_output_max: 65535.0                   # full 16-bit range (like dcmj2pnm +on2)
+  # voi_output_max: null                    # window / LUT: keep the native range (e.g. 0..2^BitsStored-1);
+  #                                         # min_max / legacy: use png8_output_max below
+
+  # Ceiling for min_max_window / legacy windows when voi_output_max is null
+  png8_output_max: 4095.0
+
+  # Write a metadata JSON (<name>.json) next to each image
+  save_metadata_json: true
+  # save_metadata_json: false
+
+  # Also write the mask as <name>_mask.png (to audit the segmentation)
+  save_mask: false
+  # save_mask: true
+
+  # Intensity harmonization applied just before saving, e.g. to map one
+  # detector's brightness onto another's. If both are set, intensity_lut wins.
+  # Applies to every image; to limit it to one manufacturer, put it in a
+  # vendor_overrides entry (section 6).
+  intensity_curve: null                     # polynomial coefficients, highest degree first (numpy.polyval)
+  # intensity_curve: [-1.03e-05, 1.668, -625.67]
+  intensity_lut: null                       # monotonic lookup table, linearly interpolated
+  # intensity_lut:
+  #   x: [0, 30000, 65535]
+  #   y: [0, 20000, 65535]
+
+
+# ── 5. Run ─────────────────────────────────────────────────────────────────
+runtime:
+  num_workers: 8                            # parallel processes (1 = sequential)
+  # num_workers: 16
+
+  # Output naming for a directory input
+  output_layout: tree                       # mirror the input folders: in/p1/s1/a.dcm -> out/p1/s1/a.png
+  # output_layout: flat                     # one folder, path joined with "__": out/p1__s1__a.png
+
+  # Resume support
+  skip_existing: false                      # (re)convert everything
+  # skip_existing: true                     # skip inputs whose output already exists (re-run to resume;
+  #                                         # images are written atomically, so an existing one is complete)
+
+  # Read DICOMs with pydicom force=True
+  force_read: false
+  # force_read: true                        # recovers files without the 128-byte preamble / "DICM" prefix
+  #                                         # (old LORAD exports), but also tries non-DICOM files
+
+  # Cache of the input file list. Reused when it was made for the same input
+  # directory, which skips the directory walk; otherwise it is rewritten.
+  scan_cache: null
+  # scan_cache: /data/out/scan_cache.txt    # worth it on slow network mounts
+
+  fail_fast: false                          # record failures (directory input: <output>/failures.log) and keep going
+  # fail_fast: true                         # stop at the first failure
+
+  dry_run: false
+  # dry_run: true                           # print the settings and write nothing
+
+  save_report: false
+  # save_report: true                       # write <output>/processing_report.json
+
+
+# ── 6. Per-manufacturer settings ───────────────────────────────────────────
+# Entries change sections 1-4 for images whose DICOM Manufacturer tag contains
+# one of the listed strings (case-insensitive). The first matching entry wins;
+# images that match none use the settings above. Only the keys you list change.
+vendor_overrides: []
+# Example: GE detectors ship several reading windows. Use the first one, and
+# compute the mask before windowing because a narrow window floors part of the
+# breast. To enable, comment out "vendor_overrides: []" above and uncomment:
+# vendor_overrides:
+#   - manufacturer: ["GE MEDICAL", "GE HEALTHCARE"]
+#     dicom:
+#       voi_policy: window
+#       voi_index: 0
+#     roi:
+#       mask_source: pre_voi

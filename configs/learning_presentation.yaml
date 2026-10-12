@@ -4,7 +4,7 @@
 # Best for: when training data is FOR PRESENTATION and you want consistent contrast.
 #
 # Usage:
-#   medip run --input dicom_dir/ --output output_dir/ --config learning_presentation.yaml
+#   medip run --input dicom_dir/ --output output_dir/ --config configs/learning_presentation.yaml
 
 profile: mammography/learning_presentation
 

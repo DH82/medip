@@ -2,6 +2,7 @@
 
 Commands:
   medip run          --input <path> --output <path> [--profile <name>] [--config <yaml>]
+  medip init-config  [path.yaml]
   medip inspect      <file.dcm>
   medip dump-metadata <file.dcm> [--output <json>]
   medip validate     <input_dir>
@@ -15,6 +16,8 @@ import json
 import sys
 from pathlib import Path
 
+from . import __version__
+
 _BANNER = r"""
                      _ _
   _ __ ___   ___  __| (_)_ __
@@ -25,16 +28,17 @@ _BANNER = r"""
 """
 
 _EPILOG = """\
-Quick Start:
-  medip run --input scan.dcm --output results/ --profile learning_raw
+Quick Start (default config = default.yaml: uint16 PNG, min-max window, background mask):
+  medip run --input dicom_dir/ --output png_dir/
+  medip init-config my.yaml        # copy of default.yaml with every option, to edit
+  medip run --input dicom_dir/ --output png_dir/ --config my.yaml
   medip inspect scan.dcm
   medip presets
 
-Modalities:
-  mammography (default)   Mammography DICOM preprocessing
-
 Profiles (mammography):
-  learning_raw            Training default (float32, no VOI, full resolution)
+  png16_minmax_masked     [default] uint16 PNG, min-max window, Otsu background mask
+  png16_minmax            Same without the mask (`dcmj2pnm +on2 --min-max-window`)
+  learning_raw            Training (float32 npy, no VOI, full resolution)
   learning_raw_uint16     Training with uint16 npy (lossless cast, half disk size)
   learning_presentation   Presentation image training (uint16 PNG, auto VOI)
   clinical_display        Visualization (uint8 PNG, resampled, cropped)
@@ -44,25 +48,25 @@ Documentation: https://github.com/DH82/medip
 
 _RUN_EPILOG = """\
 Examples:
-  # Single file with default profile (learning_raw)
-  medip run --input scan.dcm --output results/
+  # Default config (default.yaml = png16_minmax_masked): DICOM -> uint16 PNG
+  medip run --input dicom_dir/ --output png_dir/
 
-  # Directory batch processing
-  medip run --input dicom_dir/ --output output_dir/ --profile learning_presentation
+  # Another profile
+  medip run --input dicom_dir/ --output npy_dir/ --profile learning_raw
 
-  # Qualified profile name (modality/name)
-  medip run --input scan.dcm --output results/ --profile mammography/learning_raw
-
-  # Custom YAML config
-  medip run --input dicom_dir/ --output output_dir/ --config my_config.yaml
+  # Customized config (start from: medip init-config my.yaml)
+  medip run --input dicom_dir/ --output png_dir/ --config my.yaml
 
   # Preview without processing
-  medip run --input dicom_dir/ --output output_dir/ --dry-run
+  medip run --input dicom_dir/ --output png_dir/ --dry-run
 
   # Parallel processing with 16 workers
-  medip run --input dicom_dir/ --output output_dir/ --num-workers 16
+  medip run --input dicom_dir/ --output png_dir/ --num-workers 16
 
-Config Priority: --config file > --profile flag > default (learning_raw)
+  # Large cohort: one flat folder, resumable (re-run the same command after an interruption)
+  medip run --input dicom_dir/ --output png_dir/ --layout flat --skip-existing --scan-cache scan.txt
+
+Config Priority: --config file > --profile flag > default.yaml
 """
 
 _INSPECT_EPILOG = """\
@@ -86,34 +90,19 @@ Checks each DICOM file for common preprocessing issues:
 
 Example:
   medip validate dicom_dir/
-  medip validate dicom_dir/ --pattern "**/*.dcm"
+  medip validate dicom_dir/ --pattern "**/*.IMA"
 """
-
-# ── Pipeline registry ────────────────────────────────────────────────
-
-_PIPELINE_MAP = {}
-
-
-def _get_pipeline_cls(modality: str):
-    """Lazy-load pipeline class for a modality."""
-    if not _PIPELINE_MAP:
-        from .pipelines.mammography import MammographyPipeline
-        from .pipelines.base import BasePipeline
-        _PIPELINE_MAP["mammography"] = MammographyPipeline
-        _PIPELINE_MAP["_default"] = BasePipeline
-    return _PIPELINE_MAP.get(modality, _PIPELINE_MAP["_default"])
-
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="medip",
-        description="DICOM-standard medical image preprocessing toolkit",
+        description="DICOM mammography preprocessing toolkit (default: uint16 PNG, min-max window)",
         epilog=_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "-V", "--version", action="version",
-        version="%(prog)s 0.1.1",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "--log-level", default="INFO",
@@ -146,17 +135,13 @@ def main(argv=None):
     )
     run_parser.add_argument(
         "--profile", "-p", default=None,
-        help="Preset profile name (e.g., learning_raw, mammography/clinical_display). "
+        help="Preset profile name (default: settings in default.yaml). "
              "Run 'medip presets' to see all available profiles",
-    )
-    run_parser.add_argument(
-        "--modality", "-m", default="mammography",
-        help="Target modality for pipeline selection (default: mammography)",
     )
     run_parser.add_argument(
         "--config", "-c", default=None, metavar="YAML",
         help="YAML config file for fine-grained control. "
-             "Overrides --profile. See examples/ for templates",
+             "Overrides --profile. 'medip init-config' writes a template",
     )
     run_parser.add_argument(
         "--num-workers", "-j", type=int, default=None, metavar="N",
@@ -169,6 +154,38 @@ def main(argv=None):
     run_parser.add_argument(
         "--save-report", action="store_true",
         help="Save processing_report.json to output directory",
+    )
+    run_parser.add_argument(
+        "--layout", choices=["tree", "flat"], default=None,
+        help="Output layout: 'tree' mirrors the input folders, 'flat' writes one folder "
+             "named after the source path (a/b/c.dcm -> a__b__c.png). Overrides the config",
+    )
+    run_parser.add_argument(
+        "--skip-existing", action="store_true",
+        help="Skip inputs whose output already exists (resume an interrupted run)",
+    )
+    run_parser.add_argument(
+        "--force-read", action="store_true",
+        help="Read DICOMs with pydicom force=True (files missing the 'DICM' preamble)",
+    )
+    run_parser.add_argument(
+        "--scan-cache", default=None, metavar="FILE",
+        help="Cache the list of input files here and reuse it on later runs",
+    )
+
+    # ── init-config ───────────────────────────────────────────────
+    init_parser = subparsers.add_parser(
+        "init-config",
+        help="Write a copy of the default config (every option listed) to edit",
+        description="Copy medip's default.yaml, where every option is listed and the\n"
+                    "non-default values are commented out, so it can be customized.",
+    )
+    init_parser.add_argument(
+        "path", nargs="?", default="medip_config.yaml",
+        help="Where to write the config (default: medip_config.yaml)",
+    )
+    init_parser.add_argument(
+        "--force", action="store_true", help="Overwrite an existing file",
     )
 
     # ── inspect ───────────────────────────────────────────────────
@@ -210,20 +227,16 @@ def main(argv=None):
         "directory", help="Directory containing DICOM files to validate",
     )
     validate_parser.add_argument(
-        "--pattern", default="**/*.dcm", metavar="GLOB",
-        help="Glob pattern for finding DICOM files (default: **/*.dcm)",
+        "--pattern", default=None, metavar="GLOB",
+        help="Glob pattern for finding DICOM files (default: every .dcm / .dicom, as 'medip run')",
     )
 
     # ── presets ────────────────────────────────────────────────────
-    presets_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "presets",
         help="Show all available preset profiles with their settings",
         description="Display the configuration of each built-in preset profile.\n"
                     "Use these as starting points, then override via YAML config.",
-    )
-    presets_parser.add_argument(
-        "--modality", default=None,
-        help="Show presets for a specific modality only",
     )
 
     args = parser.parse_args(argv)
@@ -245,21 +258,24 @@ def main(argv=None):
         _cmd_dump_metadata(args)
     elif args.command == "validate":
         _cmd_validate(args)
+    elif args.command == "init-config":
+        _cmd_init_config(args)
     elif args.command == "presets":
         _cmd_presets(args)
 
 
 def _cmd_run(args):
-    from .presets import get_preset
+    from .api import resolve_config, run
+    from .config import OutputLayout
 
-    # Build config: config file > profile > default
-    if args.config:
-        from .utils.config_loader import load_config
-        config = load_config(args.config)
-    elif args.profile:
-        config = get_preset(args.profile)
-    else:
-        config = get_preset("learning_raw")
+    from .exceptions import InvalidProfileError
+
+    # Build config: --config file > --profile > default.yaml
+    try:
+        config = resolve_config(args.config or args.profile)
+    except (ValueError, KeyError, FileNotFoundError, InvalidProfileError) as e:
+        print(f"ERROR: invalid config: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # CLI overrides
     if args.num_workers is not None:
@@ -268,50 +284,45 @@ def _cmd_run(args):
         config.runtime.dry_run = True
     if args.save_report:
         config.runtime.save_report = True
+    if args.layout:
+        config.runtime.output_layout = OutputLayout(args.layout)
+    if args.skip_existing:
+        config.runtime.skip_existing = True
+    if args.force_read:
+        config.runtime.force_read = True
+    if args.scan_cache:
+        config.runtime.scan_cache = args.scan_cache
 
-    if config.runtime.dry_run:
-        print(f"[DRY RUN] Profile: {config.profile}")
-        print(f"  Modality: {args.modality}")
-        print(f"  Input:   {args.input}")
-        print(f"  Output:  {args.output}")
-        print(f"  Format:  {config.export.format.value}")
-        print(f"  DType:   {config.export.dtype.value}")
-        print(f"  VOI:     {config.dicom.voi_policy.value}")
-        print(f"  Spacing: {config.geometry.spacing_policy.value}")
-        print(f"  Mask:    {config.roi.mask_policy.value}")
-        print(f"  Crop:    {config.roi.crop_policy.value}")
-        print(f"  Workers: {config.runtime.num_workers}")
+    summary = run(args.input, args.output, config=config)
+    if summary.get("dry_run"):
         return
 
-    pipeline_cls = _get_pipeline_cls(args.modality)
-    pipeline = pipeline_cls(config=config)
-    input_path = Path(args.input)
+    print(f"\n[Done] {summary['success_count']}/{summary['total']} succeeded"
+          + (f", {summary['skipped']} skipped (already converted)" if summary.get("skipped") else ""))
+    if summary.get("output_path"):
+        print(f"Saved: {summary['output_path']}")
+    for name, count in sorted(summary.get("vendor_overrides", {}).items()):
+        print(f"  vendor override '{name}': {count}")
+    if summary["failures"]:
+        print(f"[Failed: {len(summary['failures'])}]")
+        for path, err in summary["failures"][:20]:
+            print(f"  - {path}: {err}")
+        if summary.get("failure_log"):
+            print(f"Full list: {summary['failure_log']}")
+    if summary.get("report_path"):
+        print(f"Report saved: {summary['report_path']}")
 
-    if input_path.is_file():
-        out_path = Path(args.output) / input_path.stem
-        result = pipeline.process_single(input_path, out_path)
-        print(f"[Done] Saved: {result.get('output_path', 'N/A')}")
-    else:
-        summary = pipeline.process_directory(input_path, args.output)
-        print(f"\n[Done] {summary['success_count']}/{summary['total']} succeeded")
-        if summary["failures"]:
-            print(f"[Failed: {len(summary['failures'])}]")
-            for path, err in summary["failures"][:20]:
-                print(f"  - {path}: {err}")
 
-        if config.runtime.save_report:
-            report_path = Path(args.output) / "processing_report.json"
-            report = {
-                "profile": config.profile,
-                "modality": args.modality,
-                "total": summary["total"],
-                "success": summary["success_count"],
-                "failed": len(summary["failures"]),
-                "failures": [{"file": f, "error": e} for f, e in summary["failures"]],
-            }
-            with open(report_path, "w") as f:
-                json.dump(report, f, indent=2)
-            print(f"Report saved: {report_path}")
+def _cmd_init_config(args):
+    from .api import write_default_config
+
+    try:
+        path = write_default_config(args.path, overwrite=args.force)
+    except FileExistsError:
+        print(f"ERROR: {args.path} already exists (use --force to overwrite)", file=sys.stderr)
+        sys.exit(1)
+    print(f"Wrote {path}")
+    print(f"Edit it, then: medip run --input <dicom_dir> --output <out_dir> --config {path}")
 
 
 def _cmd_inspect(args):
@@ -344,6 +355,8 @@ def _cmd_inspect(args):
     _print_field("Pixel Padding", d["pixel_padding_value"] if d["pixel_padding_value"] is not None else "(none)")
     _print_field("Laterality", d["image_laterality"] or "(not set)")
     _print_field("View Position", d["view_position"] or "(not set)")
+    _print_field("Manufacturer", d.get("manufacturer") or "(not set)")
+    _print_field("Model", d.get("manufacturer_model_name") or "(not set)")
 
     print(f"\n  {'Geometry'}")
     print(f"  {'-' * 40}")
@@ -371,15 +384,10 @@ def _cmd_dump_metadata(args):
 
 def _cmd_validate(args):
     from .io.metadata import extract_metadata
+    from .pipelines.base import find_dicom_files
 
     directory = Path(args.directory)
-    dcm_files = sorted(directory.rglob(args.pattern))
-
-    if not dcm_files:
-        dcm_files = sorted(
-            p for p in directory.rglob("*")
-            if p.is_file() and p.suffix.lower() == ".dcm"
-        )
+    dcm_files = find_dicom_files(directory, args.pattern)
 
     if not dcm_files:
         print(f"No DICOM files found in {directory}")
@@ -423,34 +431,29 @@ def _cmd_validate(args):
 
 
 def _cmd_presets(args):
-    from .presets import list_modalities, list_presets, get_preset
-
-    modalities = list_modalities()
-    filter_modality = getattr(args, "modality", None)
-
-    if filter_modality:
-        modalities = [m for m in modalities if m == filter_modality]
+    from .presets import DEFAULT_PROFILE, get_preset, list_modalities, list_presets
 
     print("\nAvailable Preset Profiles")
     print("=" * 60)
 
-    for modality in modalities:
+    for modality in list_modalities():
         preset_names = list_presets(modality=modality)
         print(f"\n  [{modality}]")
         print(f"  {'-' * 56}")
 
         for name in preset_names:
             qualified = f"{modality}/{name}"
-            cfg = get_preset(qualified)
-            print(f"\n    {qualified}")
+            default_mark = "  (default)" if qualified == DEFAULT_PROFILE else ""
+            print(f"\n    {qualified}{default_mark}")
             print(f"    {'.' * 52}")
+            cfg = get_preset(qualified)
             print(f"      VOI policy:        {cfg.dicom.voi_policy.value}")
             print(f"      Photometric:       {cfg.dicom.photometric_policy.value}")
             print(f"      Modality LUT:      {'yes' if cfg.dicom.apply_modality_lut else 'no'}")
             print(f"      Padding:           {cfg.dicom.padding_policy.value}")
             print(f"      Intent policy:     {cfg.dicom.presentation_intent_policy.value}")
             print(f"      Spacing:           {cfg.geometry.spacing_policy.value}", end="")
-            if cfg.geometry.target_spacing:
+            if cfg.geometry.spacing_policy.value in ("auto", "target") and cfg.geometry.target_spacing:
                 print(f" -> {cfg.geometry.target_spacing} mm")
             else:
                 print()
@@ -460,7 +463,7 @@ def _cmd_presets(args):
             print(f"      Export dtype:      {cfg.export.dtype.value}")
             print(f"      Metadata sidecar:  {'yes' if cfg.export.save_metadata_json else 'no'}")
 
-    print(f"\nUsage: medip run --input <path> --output <path> --profile <name>")
+    print(f"\nUsage: medip run --input <path> --output <path> [--profile <name>]")
     print(f"Override: medip run --input <path> --output <path> --config config.yaml\n")
 
 

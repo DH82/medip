@@ -4,9 +4,9 @@
 # Good for standardized input to models expecting fixed resolution.
 #
 # Usage:
-#   medip run --input dicom_dir/ --output output_dir/ --config custom_resample_crop.yaml
+#   medip run --input dicom_dir/ --output output_dir/ --config configs/custom_resample_crop.yaml
 #
-# Requires: pip install medip[itk]
+# Requires: pip install "medip[itk]"
 
 profile: mammography/learning_raw
 

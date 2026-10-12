@@ -4,7 +4,7 @@
 # Best for: AI/ML model training on FOR PROCESSING mammography images.
 #
 # Usage:
-#   medip run --input dicom_dir/ --output output_dir/ --config learning_raw.yaml
+#   medip run --input dicom_dir/ --output output_dir/ --config configs/learning_raw.yaml
 
 profile: mammography/learning_raw
 

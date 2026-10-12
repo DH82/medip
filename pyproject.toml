@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "medip"
-version = "0.1.1"
-description = "DICOM-standard medical image preprocessing toolkit — profile-driven, modality-extensible"
+version = "0.2.0"
+description = "DICOM mammography preprocessing toolkit — 16-bit PNG with a min-max window and background mask by default"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
@@ -15,7 +15,7 @@ authors = [
 maintainers = [
     {name = "Donghyun Lee", email = "na22jho@gmail.com"},
 ]
-keywords = ["dicom", "medical-imaging", "preprocessing", "mammography", "radiology"]
+keywords = ["dicom", "mammography", "preprocessing", "radiology"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -33,12 +33,12 @@ dependencies = [
     "pydicom>=2.4",
     "numpy>=1.22",
     "opencv-python-headless>=4.5",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
 cli = [
     "tqdm>=4.60",
-    "pyyaml>=6.0",
 ]
 jpeg = [
     "pylibjpeg>=2.0",
@@ -48,11 +48,8 @@ jpeg = [
 itk = [
     "SimpleITK>=2.2",
 ]
-nifti = [
-    "nibabel>=5.0",
-]
 all = [
-    "medip[cli,jpeg,itk,nifti]",
+    "medip[cli,jpeg,itk]",
 ]
 dev = [
     "medip[all]",
@@ -70,6 +67,9 @@ Issues = "https://github.com/DH82/medip/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+medip = ["default.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -17,7 +17,7 @@ class UnsupportedTransferSyntaxError(DicomReadError):
         self.ts_name = ts_name
         msg = (
             f"Unsupported transfer syntax: {ts_name} ({ts_uid}). "
-            "Install optional decoders: pip install medip[jpeg]"
+            "Install optional decoders: pip install \"medip[jpeg]\""
         )
         super().__init__(msg)
 

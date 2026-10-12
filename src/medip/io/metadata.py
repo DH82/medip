@@ -95,6 +95,10 @@ class DicomMetadata:
     # ── Transfer Syntax ──────────────────────────────────────────────
     transfer_syntax_uid: Optional[str] = None
 
+    # Equipment (used to pick per-vendor settings)
+    manufacturer: Optional[str] = None
+    manufacturer_model_name: Optional[str] = None
+
     # ── Image dimensions (from pixel data) ───────────────────────────
     rows: int = 0
     columns: int = 0
@@ -154,9 +158,17 @@ class DicomMetadata:
             "image_laterality": self.image_laterality,
             "view_position": self.view_position,
             "transfer_syntax_uid": self.transfer_syntax_uid,
+            "manufacturer": self.manufacturer,
+            "manufacturer_model_name": self.manufacturer_model_name,
             "rows": self.rows,
             "columns": self.columns,
         }
+
+
+def _dcmread(path, **kwargs):
+    from .dicom_reader import dcmread
+
+    return dcmread(path, **kwargs)
 
 
 def extract_metadata(ds_or_path, stop_before_pixels: bool = True) -> DicomMetadata:
@@ -170,7 +182,7 @@ def extract_metadata(ds_or_path, stop_before_pixels: bool = True) -> DicomMetada
         If reading from path, skip pixel data for speed (default True).
     """
     if isinstance(ds_or_path, (str, Path)):
-        ds = pydicom.dcmread(str(ds_or_path), stop_before_pixels=stop_before_pixels)
+        ds = _dcmread(str(ds_or_path), stop_before_pixels=stop_before_pixels)
         file_path = str(ds_or_path)
     else:
         ds = ds_or_path
@@ -224,6 +236,8 @@ def extract_metadata(ds_or_path, stop_before_pixels: bool = True) -> DicomMetada
         image_laterality=str(ds.get("ImageLaterality", "")).strip() or None,
         view_position=str(ds.get("ViewPosition", "")).strip() or None,
         transfer_syntax_uid=str(ds.file_meta.get("TransferSyntaxUID", "")) if hasattr(ds, "file_meta") else None,
+        manufacturer=str(ds.get("Manufacturer", "") or "").strip() or None,
+        manufacturer_model_name=str(ds.get("ManufacturerModelName", "") or "").strip() or None,
         rows=int(ds.get("Rows", 0)),
         columns=int(ds.get("Columns", 0)),
     )

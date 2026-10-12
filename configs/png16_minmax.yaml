@@ -1,0 +1,35 @@
+# medip config: mammography/png16_minmax
+#
+# 16-bit PNG with a min-max window and no background mask: the conversion of
+# `dcmj2pnm +on2 --min-max-window` (DCMTK) done in Python.
+#
+# Usage:
+#   medip run --input dicom_dir/ --output png_dir/ --config configs/png16_minmax.yaml
+
+profile: mammography/png16_minmax
+
+dicom:
+  apply_modality_lut: true
+  voi_policy: min_max_window     # window spans the image's own min/max
+  photometric_policy: auto       # MONOCHROME1 -> MONOCHROME2
+  padding_policy: mask           # keep Pixel Padding out of the min/max estimate
+  presentation_intent_policy: ignore  # apply the window to every image
+
+geometry:
+  spacing_policy: keep           # original resolution
+
+roi:
+  mask_policy: none              # no background mask
+  crop_policy: none
+
+export:
+  format: png16
+  dtype: uint16
+  voi_output_max: 65535.0        # full 16-bit output range, like dcmj2pnm +on2
+  save_metadata_json: true
+
+runtime:
+  num_workers: 8
+
+# Bit-identical DCMTK output: set `padding_policy: none` above so the
+# min/max is taken over every pixel, padding included.

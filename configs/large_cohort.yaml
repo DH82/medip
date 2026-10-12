@@ -1,0 +1,33 @@
+# medip config: large cohort conversion
+#
+# The default settings (png16_minmax_masked), tuned for converting hundreds of
+# thousands of images from a network mount:
+#   - one flat output folder, each file named after its source path
+#     (patient/date/uid.dcm -> patient__date__uid.png)
+#   - resumable: re-run the same command after an interruption
+#   - the input file list is cached, so later runs skip the directory walk
+#   - GE images use the vendor's first reading window
+#
+# Usage:
+#   medip run --input /data/dicom --output /data/png16 --config configs/large_cohort.yaml
+#   python -c "import medip; medip.run('/data/dicom', '/data/png16', 'configs/large_cohort.yaml')"
+
+profile: mammography/png16_minmax_masked
+
+export:
+  save_metadata_json: false      # images only
+
+runtime:
+  num_workers: 8
+  output_layout: flat
+  skip_existing: true
+  scan_cache: scan_cache.txt     # relative to the working directory; rescanned for a different input
+  # force_read: true             # uncomment for old exports without the "DICM" preamble
+
+vendor_overrides:
+  - manufacturer: ["GE MEDICAL", "GE HEALTHCARE"]
+    dicom:
+      voi_policy: window         # GE ships several reading windows; use the first
+      voi_index: 0
+    roi:
+      mask_source: pre_voi       # a narrow window floors tissue; take the mask before it

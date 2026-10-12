@@ -1,11 +1,11 @@
 """Preset profile registry.
 
-Presets are organized by modality. Each modality module provides a PRESETS dict
-mapping short names to factory functions. The registry combines them using
-``modality/name`` keys (e.g., ``mammography/learning_raw``).
+Presets live in ``presets/mammography.py`` and are addressed as
+``mammography/<name>`` (e.g., ``mammography/png16_minmax_masked``) or by the
+short name alone (e.g., ``png16_minmax_masked``).
 
-For backward compatibility, presets from the *default* modality can also be
-looked up by short name alone (e.g., ``learning_raw``).
+``DEFAULT_PROFILE`` is what the CLI, the YAML loader and ``MammographyPipeline()``
+use when no profile is given.
 """
 
 from __future__ import annotations
@@ -21,6 +21,9 @@ from . import mammography
 _MODALITY_PRESETS: Dict[str, Dict[str, Callable[[], PipelineConfig]]] = {}
 
 DEFAULT_MODALITY = "mammography"
+
+# uint16 PNG, min-max window, Otsu background mask. default.yaml mirrors it.
+DEFAULT_PROFILE = "mammography/png16_minmax_masked"
 
 
 def register_modality(modality: str, presets: Dict[str, Callable[[], PipelineConfig]]) -> None:

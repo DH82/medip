@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # ── DICOM policy enums ──────────────────────────────────────────────
@@ -14,6 +14,7 @@ class VOIPolicy(str, Enum):
     AUTO = "auto"
     LUT = "lut"
     WINDOW = "window"
+    MIN_MAX_WINDOW = "min_max_window"
     LEGACY_LINEAR = "legacy_linear"
     LEGACY_SIGMOID = "legacy_sigmoid"
 
@@ -57,6 +58,13 @@ class MaskPolicy(str, Enum):
     CUSTOM = "custom"
 
 
+class MaskSource(str, Enum):
+    """Which version of the pixels the mask is computed from."""
+
+    POST_VOI = "post_voi"  # after windowing — what gets exported
+    PRE_VOI = "pre_voi"    # after Modality LUT and photometric, before windowing
+
+
 class CropPolicy(str, Enum):
     NONE = "none"
     BBOX = "bbox"
@@ -72,7 +80,11 @@ class ExportFormat(str, Enum):
     TIFF16 = "tiff16"
     JPEG = "jpeg"
     DICOM = "dicom"
-    NIFTI = "nifti"
+
+
+class OutputLayout(str, Enum):
+    TREE = "tree"  # mirror the input folder structure
+    FLAT = "flat"  # one folder; the relative path is joined into the name with "__"
 
 
 class ExportDtype(str, Enum):
@@ -112,6 +124,9 @@ class ROIConfig:
     morph_open_kernel: int = 7
     morph_close_kernel: int = 15
     min_contour_area: int = 2000
+    keep_all_components: bool = False  # True: keep every component >= min_contour_area
+    mask_source: MaskSource = MaskSource.POST_VOI
+    mask_to_bbox: bool = False  # expand the mask to its smallest enclosing rectangle
     fallback_to_full: bool = True
 
 
@@ -123,6 +138,18 @@ class ExportConfig:
     save_mask: bool = False
     save_metadata_json: bool = True
     png8_output_max: float = 4095.0  # legacy compat: scale factor before 8-bit
+    # Polynomial applied to the pixels just before export, highest degree first
+    # (numpy.polyval order). Used to map one detector's intensities onto another's
+    # so a mixed-vendor cohort shares a scale. Must be monotonic over the output
+    # range or it will reorder tissue brightness; fit_vendor_curve.py checks that.
+    intensity_curve: Optional[List[float]] = None
+    # Monotonic lookup table as {"x": [...], "y": [...]}, applied by linear
+    # interpolation before export. Use this instead of intensity_curve when the two
+    # detectors' intensity distributions differ in shape and not just scale: a
+    # polynomial through those quantiles stops being monotonic, while a table
+    # through the same points is monotonic by construction.
+    intensity_lut: Optional[Dict[str, List[float]]] = None
+    voi_output_max: Optional[float] = None  # overrides png8_output_max for VOI legacy/min-max modes
 
 
 @dataclass
@@ -131,15 +158,45 @@ class RuntimeConfig:
     fail_fast: bool = False
     dry_run: bool = False
     save_report: bool = False
+    output_layout: OutputLayout = OutputLayout.TREE
+    # Skip inputs whose output file already exists, so an interrupted run resumes.
+    skip_existing: bool = False
+    # Read DICOMs with pydicom force=True: recovers files missing the 128-byte
+    # preamble / "DICM" prefix, but also makes pydicom attempt non-DICOM files.
+    force_read: bool = False
+    # Text file caching the list of input DICOMs (one path per line). Reused when
+    # it exists, which skips the directory walk on slow network mounts.
+    scan_cache: Optional[str] = None
+
+
+@dataclass
+class VendorOverride:
+    """Settings applied only to images from matching manufacturers.
+
+    ``manufacturer`` holds case-insensitive substrings of the DICOM Manufacturer
+    tag; the first override with a match wins. The section dicts use the same
+    keys as the YAML ``dicom`` / ``geometry`` / ``roi`` / ``export`` sections.
+    """
+
+    manufacturer: List[str]
+    dicom: Dict[str, Any] = field(default_factory=dict)
+    geometry: Dict[str, Any] = field(default_factory=dict)
+    roi: Dict[str, Any] = field(default_factory=dict)
+    export: Dict[str, Any] = field(default_factory=dict)
+
+    def matches(self, manufacturer: Optional[str]) -> bool:
+        name = (manufacturer or "").upper()
+        return any(pattern.upper() in name for pattern in self.manufacturer)
 
 
 @dataclass
 class PipelineConfig:
     """Top-level config combining all sub-configs."""
 
-    profile: str = "learning_raw"
+    profile: str = "custom"  # presets set their own name; see presets.DEFAULT_PROFILE
     dicom: DicomConfig = field(default_factory=DicomConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     roi: ROIConfig = field(default_factory=ROIConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    vendor_overrides: List[VendorOverride] = field(default_factory=list)

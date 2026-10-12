@@ -8,13 +8,13 @@ Supported formats:
   - tiff16  : 16-bit TIFF (lossless, widely compatible)
   - jpeg    : 8-bit JPEG (lossy, visualization only)
   - dicom   : Secondary Capture DICOM (preserves metadata)
-  - nifti   : NIfTI-1 (.nii.gz) (neuroimaging-compatible)
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -34,8 +34,35 @@ _FORMAT_EXT = {
     ExportFormat.TIFF16: ".tiff",
     ExportFormat.JPEG: ".jpg",
     ExportFormat.DICOM: ".dcm",
-    ExportFormat.NIFTI: ".nii.gz",
 }
+
+
+# Extensions export_image is allowed to strip from a caller-supplied path.
+# Anything else (e.g. the trailing ".498" of a dotted DICOM UID filename) is
+# part of the name, not an extension.
+_KNOWN_EXT = tuple(
+    sorted(
+        set(_FORMAT_EXT.values()) | {".dcm", ".dicom", ".png", ".jpeg"},
+        key=len,
+        reverse=True,
+    )
+)
+
+
+def _resolve_output_path(output_path: Path, fmt: ExportFormat) -> Path:
+    """Give *output_path* the extension for *fmt*.
+
+    Only a recognized image extension is replaced. Names that merely contain
+    dots — DICOM UIDs, most commonly — keep every component, so files like
+    ``1.2.826.0.1.3680043.8.498.12345`` no longer collapse onto each other.
+    """
+    ext = _FORMAT_EXT[fmt]
+    name = output_path.name
+    for known in _KNOWN_EXT:
+        if name.lower().endswith(known) and len(name) > len(known):
+            name = name[: -len(known)]
+            break
+    return output_path.with_name(name + ext)
 
 
 def export_image(
@@ -48,43 +75,41 @@ def export_image(
 ) -> Path:
     """Export processed image to the configured format.
 
+    The mask and metadata sidecars are written first and the image last, through
+    a temporary file renamed into place. So an image file only ever exists
+    complete, with its sidecars beside it — which is what lets
+    ``runtime.skip_existing`` trust it when an interrupted run resumes.
+
     Returns the path to the saved primary image file.
     """
     output_path = Path(output_path)
+    primary_path = _resolve_output_path(output_path, config.format)
     ext = _FORMAT_EXT[config.format]
-
-    # Ensure the stem is used, replace extension
-    if output_path.suffix:
-        if config.format == ExportFormat.NIFTI:
-            # Handle .nii.gz double extension
-            base = output_path.with_suffix("").with_suffix("")
-            primary_path = Path(str(base) + ext)
-        else:
-            primary_path = output_path.with_suffix(ext)
-    else:
-        if config.format == ExportFormat.NIFTI:
-            primary_path = Path(str(output_path) + ext)
-        else:
-            primary_path = output_path.with_suffix(ext)
+    base_name = primary_path.name[: -len(ext)]
 
     primary_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Cast to target dtype
     out_pixels = _cast_dtype(pixels, config)
 
-    # Dispatch to format-specific exporter
-    _EXPORTERS[config.format](out_pixels, primary_path, config, pixel_spacing)
-    logger.info("Saved: %s (%s)", primary_path, config.format.value)
-
     # Save mask if requested
     if config.save_mask and mask is not None:
-        mask_path = primary_path.parent / f"{primary_path.stem}_mask.png"
-        _export_mask(mask, mask_path)
+        _export_mask(mask, primary_path.with_name(f"{base_name}_mask.png"))
 
     # Save metadata sidecar
     if config.save_metadata_json and metadata_dict is not None:
-        json_path = primary_path.with_suffix(".json")
-        _export_metadata_json(metadata_dict, json_path)
+        _export_metadata_json(metadata_dict, primary_path.with_name(base_name + ".json"))
+
+    # Image last, atomically. The temporary name keeps the real extension
+    # because the writers pick the format from it.
+    partial_path = primary_path.with_name(f".{base_name}.partial{ext}")
+    try:
+        _EXPORTERS[config.format](out_pixels, partial_path, config, pixel_spacing)
+        os.replace(partial_path, primary_path)
+    except BaseException:
+        partial_path.unlink(missing_ok=True)
+        raise
+    logger.debug("Saved: %s (%s)", primary_path, config.format.value)
 
     return primary_path
 
@@ -276,29 +301,6 @@ def _export_dicom(
     ds.save_as(str(path))
 
 
-def _export_nifti(
-    pixels: np.ndarray, path: Path, config: ExportConfig, spacing: Optional[tuple]
-) -> None:
-    """Export as NIfTI-1 (.nii.gz)."""
-    try:
-        import nibabel as nib
-    except ImportError:
-        raise ExportError(
-            "nibabel is required for NIfTI export. Install: pip install nibabel"
-        )
-
-    # NIfTI expects (W, H) or (X, Y) — transpose from (H, W)
-    data = pixels.T
-
-    affine = np.eye(4)
-    if spacing is not None:
-        affine[0, 0] = spacing[1]  # col spacing -> x
-        affine[1, 1] = spacing[0]  # row spacing -> y
-
-    img = nib.Nifti1Image(data, affine)
-    nib.save(img, str(path))
-
-
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -326,5 +328,4 @@ _EXPORTERS = {
     ExportFormat.TIFF16: _export_tiff16,
     ExportFormat.JPEG: _export_jpeg,
     ExportFormat.DICOM: _export_dicom,
-    ExportFormat.NIFTI: _export_nifti,
 }
